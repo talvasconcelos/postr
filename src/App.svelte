@@ -6,7 +6,8 @@
     checkSupportNIP33,
     defaultRelays,
     findPreviousPosts,
-    publishToRelays
+    publishToRelays,
+    uuidv4
   } from "./lib/nostr";
   let source = "";
   let markdown = "";
@@ -17,6 +18,8 @@
   let invalid = false;
   let previous = [];
   let previousPosts = new Map();
+  let loading = false;
+  let loadingPosts = false;
 
   function timeout(ms) {
     return new Promise((res) => setTimeout(res, ms));
@@ -34,7 +37,8 @@
 
   //DOMPurify.sanitize(marked(source));
   // relays accepting nip33 ['wss://relay.nostr.info', ]
-  $: markdown = marked(source);
+  $: markdown = source && marked(source);
+  $: previousPostID = null;
 
   function reset() {
     title = null;
@@ -42,24 +46,26 @@
     hero = null;
     source = null;
     draft = true;
+    previousPostID = null;
   }
 
   function handlePrevious(ev) {
-    //it it's in cache and older do nothing
+    loadingPosts = true;
+    let tagID = ev.tags.find(([k, v]) => k === "d" && v && v !== "")[1];
+    //if it's in cache and older do nothing
     if (
-      previousPosts.has(ev.id) &&
-      previousPosts.get(ev.id).timestamp > ev.created_at
+      previousPosts.has(tagID) &&
+      previousPosts.get(tagID).timestamp > ev.created_at
     )
       return;
     let content = JSON.parse(ev.content);
-    if (!content.title) return;
-    previousPosts.set(ev.id, {
-      id: ev.id,
+    if (!content.uuid) return;
+    previousPosts.set(tagID, {
       timestamp: ev.created_at,
       ...content
     });
     previous = [...Array.from(previousPosts.values())];
-    console.log(previous);
+    loadingPosts = false;
   }
 
   function editPost(event) {
@@ -68,31 +74,16 @@
     excerpt = event.excerpt || "";
     hero = event.hero || "";
     draft = event.draft;
+    previousPostID = event.uuid ? event.uuid : uuidv4();
   }
 
-  onMount(async () => {
-    await timeout(500);
-    hasNIP07 = Boolean(window.nostr);
-    if (!hasNIP07) return;
-    let pub = await window.nostr.getPublicKey();
-    let rel = await getSupportedRelays();
-    await findPreviousPosts(rel, pub, (event) => {
-      handlePrevious(event);
-      // previous.set(event.id, JSON.parse(event.content));
-      // console.log(previousPosts);
-    });
-  });
-
   async function handlePost() {
-    console.log(Boolean(title), title);
-    if (!title || title.lenght < 3 || !source) {
-      invalid = true;
-      return;
-    }
+    loading = true;
     const supportedRelays = await getSupportedRelays();
     const data = {
+      uuid: previousPostID ? previousPostID : uuidv4(),
       title,
-      slug: slugify(title.toLowerCase()),
+      slug: title && slugify(title.toLowerCase()),
       excerpt,
       hero,
       markdown: source,
@@ -104,12 +95,33 @@
       pubkey: await window.nostr.getPublicKey(),
       content: JSON.stringify(data),
       created_at: Math.floor(Date.now() / 1000),
-      tags: [["d", slugify(title.toLowerCase())]]
+      tags: [["d", data.uuid]]
     };
     const signed = await window.nostr.signEvent(event);
-    await publishToRelays(supportedRelays, signed);
-    reset();
+    try {
+      await publishToRelays(supportedRelays, signed);
+      await timeout(500);
+      await getPreviousPosts();
+      reset();
+    } catch (error) {
+      console.error("Something went wrong.", error);
+    }
+    loading = false;
   }
+
+  async function getPreviousPosts() {
+    let pub = await window.nostr.getPublicKey();
+    let rel = await getSupportedRelays();
+    await findPreviousPosts(rel, pub, (event) => {
+      handlePrevious(event);
+    });
+  }
+  onMount(async () => {
+    await timeout(500);
+    hasNIP07 = Boolean(window.nostr);
+    if (!hasNIP07) return;
+    await getPreviousPosts();
+  });
 </script>
 
 <section>
@@ -125,11 +137,18 @@
   </div>
   <div>
     <details role="list">
-      <summary aria-haspopup="listbox">Previous Posts</summary>
+      <summary
+        aria-busy={loadingPosts}
+        aria-haspopup="listbox">Previous Posts</summary
+      >
       <ul role="listbox">
-        {#each previous as post}
-          <li><a on:click={() => editPost(post)}>{post.title}</a></li>
-        {/each}
+        {#if previous}
+          {#each previous as post}
+            <li><a on:click={() => editPost(post)}>{post.title}</a></li>
+          {/each}
+        {:else}
+          <li>No posts found</li>
+        {/if}
       </ul>
     </details>
   </div>
@@ -187,6 +206,7 @@
               name="draft"
               role="switch"
               bind:checked={draft}
+              aria-busy={loading}
             />
             {draft ? "Draft" : "Final"}
           </label>
@@ -199,6 +219,9 @@
       </div>
       {#if showPreview}
         <div class="preview">
+          <hgroup>
+            <h3>Preview</h3>
+          </hgroup>
           <div class="output">{@html markdown}</div>
         </div>
       {/if}
