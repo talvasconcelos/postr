@@ -15,7 +15,6 @@
   let draft = true;
   let title, excerpt, hero;
   let hasNIP07 = false;
-  let invalid = false;
   let previous = [];
   let previousPosts = new Map();
   let loading = false;
@@ -35,8 +34,6 @@
     return await checkSupportNIP33(relays);
   }
 
-  //DOMPurify.sanitize(marked(source));
-  // relays accepting nip33 ['wss://relay.nostr.info', ]
   $: markdown = source && marked(source);
   $: previousPostID = null;
 
@@ -126,7 +123,16 @@
 
 <section>
   <div class="header">
-    <h1>Send blog post to Nostr</h1>
+    <hgroup>
+      <h1>Send blog post to Nostr</h1>
+      <h3>
+        Send blog post like notes, using Mardown, to Nostr relays supporting <a
+          href="https://github.com/nostr-protocol/nips/blob/master/33.md#nip-33"
+          target="_blank"
+          rel="noopener noreferrer">NIP33</a
+        >. Nostrium blog client coming soon...
+      </h3>
+    </hgroup>
     <small
       >You need to have a signing browser extension (<a
         href="https://github.com/nostr-protocol/nips/blob/master/07.md#nip-07"
@@ -229,22 +235,16 @@
       <p>Can't use this tool</p>
     {/if}
   </div>
-  <dialog open={invalid}>
-    <article>
-      <header>
-        <a
-          href="javascript:;"
-          on:click={() => (invalid = false)}
-          aria-label="Close"
-          class="close"
-        />
-        Invalid
-      </header>
-      <p>
-        Please make sure the <i>Title</i> and <i>Post body</i> are filled!
-      </p>
-    </article>
-  </dialog>
+  <footer>
+    <hr />
+    <p>
+      Check code on <a
+        href="https://github.com/talvasconcelos/postr"
+        target="_blank"
+        rel="noopener noreferrer">Github</a
+      >.
+    </p>
+  </footer>
 </section>
 
 <style>
