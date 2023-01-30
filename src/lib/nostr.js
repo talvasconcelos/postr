@@ -3,14 +3,12 @@ import { relayInit } from "nostr-tools";
 export const defaultRelays = new Map([
   ["wss://relay.nostr.info", { read: true, write: true }],
   ["wss://nostr.bitcoiner.social", { read: true, write: true }],
-  //   ["wss://relay.damus.io", { read: true, write: true }],
-  //   ["wss://nostr-pub.wellorder.net", { read: true, write: true }],
-  //   ["wss://nostr-verified.wellorder.net", { read: true, write: true }],
-  //   ["wss://expensive-relay.fiatjaf.com", { read: true, write: true }],
-  //   ["wss://relay.nostrich.de", { read: true, write: true }],
+  [
+    "wss://nostream-production-b80e.up.railway.app",
+    { read: true, write: true }
+  ],
+  ["wss://nostr.mom", { read: true, write: true }],
   ["wss://nostr-pub.semisol.dev", { read: true, write: true }]
-  //   ["wss://nostr.openchain.fr", { read: true, write: true }],
-  //   ["wss://nostr.cercatrova.me", { read: true, write: true }]
 ]);
 
 export async function checkSupportNIP33(relays) {
@@ -27,7 +25,7 @@ export async function checkSupportNIP33(relays) {
         nip33.push(url);
       }
     } catch (error) {
-      console.error(error);
+      continue;
     }
   }
   return nip33;
@@ -89,4 +87,13 @@ export async function findPreviousPosts(relays, pubkey, cb) {
       sub.unsub();
     });
   }
+}
+
+export function uuidv4() {
+  return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
+    (
+      c ^
+      (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
+    ).toString(16)
+  );
 }
