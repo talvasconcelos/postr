@@ -1,4 +1,5 @@
 <script>
+  import matter from "gray-matter";
   import { marked } from "marked";
   import slugify from "slugify";
   import { onMount } from "svelte";
@@ -49,50 +50,66 @@
   function handlePrevious(ev) {
     loadingPosts = true;
     let tagID = ev.tags.find(([k, v]) => k === "d" && v && v !== "")[1];
+    if (!tagID) {
+      loadingPosts = false;
+      return;
+    }
     //if it's in cache and older do nothing
     if (
       previousPosts.has(tagID) &&
       previousPosts.get(tagID).timestamp > ev.created_at
-    )
+    ) {
+      loadingPosts = false;
       return;
-    let content = JSON.parse(ev.content);
-    if (!content.uuid) return;
+    }
+
+    let { data, content } = matter(ev.content);
+    if (!data.uuid) {
+      loadingPosts = false;
+      return;
+    }
     previousPosts.set(tagID, {
       timestamp: ev.created_at,
-      ...content
+      content,
+      ...data
     });
     previous = [...Array.from(previousPosts.values())];
     loadingPosts = false;
   }
 
   function editPost(event) {
+    console.log(event);
     title = event.title;
-    source = event.markdown;
+    source = event.content;
     excerpt = event.excerpt || "";
     hero = event.hero || "";
     draft = event.draft;
-    previousPostID = event.uuid ? event.uuid : uuidv4();
+    previousPostID = event.uuid;
+    // let post = matter(event);
+    // title = post.data.title;
+    // source = post.content;
+    // excerpt = post.data.excerpt || "";
+    // hero = post.data.hero || "";
+    // draft = post.data.draft;
+    // previousPostID = post.data.uuid ? post.data.uuid : uuidv4();
   }
 
   async function handlePost() {
     loading = true;
     const supportedRelays = await getSupportedRelays();
-    const data = {
-      uuid: previousPostID ? previousPostID : uuidv4(),
-      title,
-      slug: title && slugify(title.toLowerCase()),
-      excerpt,
-      hero,
-      markdown: source,
-      draft
-    };
+    const frontmatter = `---\ntitle: "${title}"\nslug: "${
+      title && slugify(title.toLowerCase())
+    }"\nexcerpt: "${excerpt}"\nhero: ${hero}\ndraft: ${draft}\nuuid: ${
+      previousPostID ? previousPostID : uuidv4()
+    } \n---\n`;
+    const data = frontmatter + source;
 
     const event = {
       kind: 33333,
       pubkey: await window.nostr.getPublicKey(),
-      content: JSON.stringify(data),
+      content: data,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [["d", data.uuid]]
+      tags: [["d", previousPostID ? previousPostID : uuidv4()]]
     };
     const signed = await window.nostr.signEvent(event);
     try {
@@ -101,6 +118,7 @@
       await getPreviousPosts();
       reset();
     } catch (error) {
+      loading = false;
       console.error("Something went wrong.", error);
     }
     loading = false;
