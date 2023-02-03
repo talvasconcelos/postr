@@ -31,7 +31,8 @@
     for (const key in userRelays) {
       relays.set(key, userRelays[key]);
     }
-
+    console.log(relays.keys());
+    return Array.from(relays.keys());
     return await checkSupportNIP33(relays);
   }
 
@@ -98,7 +99,8 @@
     loading = true;
     const supportedRelays = await getSupportedRelays();
     const frontmatter = `---\ntitle: "${title}"\nslug: "${
-      title && slugify(title.toLowerCase())
+      title &&
+      slugify(title.toLowerCase(), { strict: true, remove: /[*+~.()'"!:@]/g })
     }"\nexcerpt: "${excerpt}"\nhero: ${hero}\ndraft: ${draft}\nuuid: ${
       previousPostID ? previousPostID : uuidv4()
     } \n---\n`;
@@ -117,11 +119,11 @@
       await timeout(500);
       await getPreviousPosts();
       reset();
+      loading = false;
     } catch (error) {
       loading = false;
       console.error("Something went wrong.", error);
     }
-    loading = false;
   }
 
   async function getPreviousPosts() {
@@ -197,7 +199,14 @@
             type="text"
             bind:value={title}
           />
-          <small>Slug: {title ? slugify(title.toLowerCase()) : ""}</small>
+          <small
+            >Slug: {title
+              ? slugify(title.toLowerCase(), {
+                  strict: true,
+                  remove: /[*+~.()'"!:@]/g
+                })
+              : ""}</small
+          >
         </fieldset>
         <div class="markdown-editor">
           <div class="left-panel">
@@ -236,6 +245,7 @@
           </label>
         </fieldset>
         <a
+          aria-busy={loading}
           on:click={handlePost}
           href="javascript:;"
           role="button">{draft ? "Publish Draft" : "Publish"}</a

@@ -3,12 +3,13 @@ import { relayInit } from "nostr-tools";
 export const defaultRelays = new Map([
   ["wss://relay.nostr.info", { read: true, write: true }],
   ["wss://nostr.bitcoiner.social", { read: true, write: true }],
+  ["wss://nostr-pub.wellorder.net", { read: true, write: true }],
+  ["wss://nostr-pub.semisol.dev", { read: true, write: true }],
   [
     "wss://nostream-production-b80e.up.railway.app",
     { read: true, write: true }
   ],
-  ["wss://nostr.mom", { read: true, write: true }],
-  ["wss://nostr-pub.semisol.dev", { read: true, write: true }]
+  ["wss://nostr.mom", { read: true, write: true }]
 ]);
 
 export async function checkSupportNIP33(relays) {
