@@ -24,7 +24,7 @@
   }
 
   $: markdown = source && marked(source);
-  $: previousPostID = null;
+  $: identifier = null;
 
   async function initializeRelays() {
     let relays = Object.keys(((await window.nostr?.getRelays?.()) || []));
@@ -56,7 +56,7 @@
     summary = null;
     image = null;
     source = null;
-    previousPostID = null;
+    identifier = null;
   }
 
   function handlePrevious(ev) {
@@ -66,7 +66,7 @@
       loadingPosts = false;
       return;
     }
-    //if it's in cache and older do nothing
+    // if it's in cache and older do nothing
     if (
       previousPosts.has(tagID) &&
       previousPosts.get(tagID).timestamp > ev.created_at
@@ -92,14 +92,14 @@
     source = post.content;
     summary = post.summary || "";
     image = post.image || "";
-    previousPostID = post.uuid;
+    identifier = post.d;
   }
 
   async function publish() {
     loading = true;
 
     const tags = [
-      ["d", previousPostID ? previousPostID : randomId()]
+      ["d", identifier ? identifier : randomId()]
     ]
 
     if (title && title !== "") tags.push(["title", title])
