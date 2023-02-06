@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "marked": "^4.2.12",
-    "nostr-tools": "^1.2.0",
-    "slugify": "^1.6.5"
+    "nostr-tools": "^1.2.0"
   }
 }

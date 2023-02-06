@@ -1,6 +1,5 @@
 <script>
   import { marked } from "marked";
-  import slugify from "slugify";
   import { onMount } from "svelte";
   import {
     findPreviousPosts,
