@@ -1,20 +1,18 @@
 <script>
-  import matter from "gray-matter";
   import { marked } from "marked";
-  import slugify from "slugify";
   import { onMount } from "svelte";
   import {
-    checkSupportNIP33,
-    defaultRelays,
     findPreviousPosts,
     publishToRelays,
-    uuidv4
+    randomId,
+    defaultRelays
   } from "./lib/nostr";
+
+  let usingRelays = []
   let source = "";
   let markdown = "";
   let showPreview = true;
-  let draft = true;
-  let title, excerpt, hero;
+  let title, summary, image;
   let hasNIP07 = false;
   let previous = [];
   let previousPosts = new Map();
@@ -25,27 +23,40 @@
     return new Promise((res) => setTimeout(res, ms));
   }
 
-  async function getSupportedRelays() {
-    const userRelays = (await window.nostr?.getRelays?.()) || [];
-    const relays = defaultRelays;
-    for (const key in userRelays) {
-      relays.set(key, userRelays[key]);
-    }
-    console.log(relays.keys());
-    return Array.from(relays.keys());
-    return await checkSupportNIP33(relays);
-  }
-
   $: markdown = source && marked(source);
-  $: previousPostID = null;
+  $: identifier = null;
+
+  async function initializeRelays() {
+    let relays = Object.keys(((await window.nostr?.getRelays?.()) || []));
+    if (relays.length === 0) relays = defaultRelays;
+
+    let nip33 = [];
+    for (let i = 0; i < relays.length; i++) {
+      let url = relays[i];
+      try {
+        const req = await fetch(url.replace("wss://", "https://").replace('ws://', 'http://'), {
+          headers: {
+            Accept: "application/nostr+json"
+          }
+        });
+        const res = await req.json();
+        if (res.supported_nips.includes(33)) {
+          nip33.push(url);
+        }
+      } catch (error) {
+        continue;
+      }
+    }
+
+    usingRelays = nip33;
+  }
 
   function reset() {
     title = null;
-    excerpt = null;
-    hero = null;
+    summary = null;
+    image = null;
     source = null;
-    draft = true;
-    previousPostID = null;
+    identifier = null;
   }
 
   function handlePrevious(ev) {
@@ -55,7 +66,7 @@
       loadingPosts = false;
       return;
     }
-    //if it's in cache and older do nothing
+    // if it's in cache and older do nothing
     if (
       previousPosts.has(tagID) &&
       previousPosts.get(tagID).timestamp > ev.created_at
@@ -64,72 +75,69 @@
       return;
     }
 
-    let { data, content } = matter(ev.content);
-    if (!data.uuid) {
-      loadingPosts = false;
-      return;
-    }
+    const data = Object.fromEntries(ev.tags)
+
     previousPosts.set(tagID, {
       timestamp: ev.created_at,
-      content,
+      content: ev.content,
       ...data
     });
     previous = [...Array.from(previousPosts.values())];
     loadingPosts = false;
   }
 
-  function editPost(event) {
-    console.log(event);
-    title = event.title;
-    source = event.content;
-    excerpt = event.excerpt || "";
-    hero = event.hero || "";
-    draft = event.draft;
-    previousPostID = event.uuid;
-    // let post = matter(event);
-    // title = post.data.title;
-    // source = post.content;
-    // excerpt = post.data.excerpt || "";
-    // hero = post.data.hero || "";
-    // draft = post.data.draft;
-    // previousPostID = post.data.uuid ? post.data.uuid : uuidv4();
+  function editPost(post) {
+    console.log('editing', post);
+    title = post.title;
+    source = post.content;
+    summary = post.summary || "";
+    image = post.image || "";
+    identifier = post.d;
   }
 
-  async function handlePost() {
+  async function publish() {
     loading = true;
-    const supportedRelays = await getSupportedRelays();
-    const frontmatter = `---\ntitle: "${title}"\nslug: "${
-      title &&
-      slugify(title.toLowerCase(), { strict: true, remove: /[*+~.()'"!:@]/g })
-    }"\nexcerpt: "${excerpt}"\nhero: ${hero}\ndraft: ${draft}\nuuid: ${
-      previousPostID ? previousPostID : uuidv4()
-    } \n---\n`;
-    const data = frontmatter + source;
+
+    const tags = [
+      ["d", identifier ? identifier : randomId()]
+    ]
+
+    if (title && title !== "") tags.push(["title", title])
+    if (summary && summary !== "") tags.push(["summary", summary])
+    if (image && image !== "") tags.push(["image", image])
 
     const event = {
-      kind: 33333,
+      kind: 30023,
       pubkey: await window.nostr.getPublicKey(),
-      content: data,
+      content: source,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [["d", previousPostID ? previousPostID : uuidv4()]]
+      tags
     };
-    const signed = await window.nostr.signEvent(event);
+
+    var signed
     try {
-      await publishToRelays(supportedRelays, signed);
+      signed = await window.nostr.signEvent(event);
+    } catch (error) {
+      loading = false
+      console.error("failed to sign with extension", error)
+      return
+    }
+
+    try {
+      await publishToRelays(usingRelays, signed);
       await timeout(500);
       await getPreviousPosts();
       reset();
       loading = false;
     } catch (error) {
       loading = false;
-      console.error("Something went wrong.", error);
+      console.error("something went wrong", error);
     }
   }
 
   async function getPreviousPosts() {
     let pub = await window.nostr.getPublicKey();
-    let rel = await getSupportedRelays();
-    await findPreviousPosts(rel, pub, (event) => {
+    await findPreviousPosts(usingRelays, pub, (event) => {
       handlePrevious(event);
     });
   }
@@ -137,6 +145,7 @@
     await timeout(500);
     hasNIP07 = Boolean(window.nostr);
     if (!hasNIP07) return;
+    await initializeRelays();
     await getPreviousPosts();
   });
 </script>
@@ -144,24 +153,26 @@
 <section>
   <div class="header">
     <hgroup>
-      <h1>Send blog post to Nostr</h1>
+      <h1>Postr</h1>
       <h3>
-        Send blog post like notes, using Mardown, to Nostr relays supporting <a
-          href="https://github.com/nostr-protocol/nips/blob/master/33.md#nip-33"
+        <a
+          href="https://github.com/nostr-protocol/nips/blob/master/23.md"
           target="_blank"
-          rel="noopener noreferrer">NIP33</a
-        >. Nostrium blog client coming soon...
+          rel="noopener noreferrer">nip23</a
+        >-enabled article editor for Nostr
       </h3>
     </hgroup>
-    <small
-      >You need to have a signing browser extension (<a
-        href="https://github.com/nostr-protocol/nips/blob/master/07.md#nip-07"
-        target="_blank"
-        rel="noopener noreferrer">NIP07</a
-      >) to use this tool</small
-    >
+    {#if !hasNIP07}
+      <small
+        >You need to have a signing browser extension (<a
+          href="https://github.com/nostr-protocol/nips/blob/master/07.md#nip-07"
+          target="_blank"
+          rel="noopener noreferrer">NIP07</a
+        >) to use this tool</small
+      >
+    {/if}
   </div>
-  <div>
+  <div class="grid">
     <details role="list">
       <summary
         aria-busy={loadingPosts}
@@ -177,6 +188,12 @@
         {/if}
       </ul>
     </details>
+    <div class="relays">
+      Relays
+      {#each usingRelays as relay}
+        <div>{relay}</div>
+      {/each}
+    </div>
   </div>
   <div class="main grid">
     {#if hasNIP07}
@@ -194,68 +211,50 @@
           </label>
         </fieldset>
         <fieldset>
-          <label for="title">Post Title</label>
+          <label for="title">Title</label>
           <input
+            id="title"
             type="text"
             bind:value={title}
           />
-          <small
-            >Slug: {title
-              ? slugify(title.toLowerCase(), {
-                  strict: true,
-                  remove: /[*+~.()'"!:@]/g
-                })
-              : ""}</small
-          >
         </fieldset>
         <div class="markdown-editor">
           <div class="left-panel">
             <label for="post">Write post</label>
             <textarea
+              id="post"
               bind:value={source}
+              placeholder="Markdown article body"
               class="source"
             />
             <br />
-            <label for="excerpt">Excerpt</label>
+            <label for="summary">Summary</label>
             <textarea
+              id="summary"
               placeholder="Summary"
-              bind:value={excerpt}
+              bind:value={summary}
             />
-            <small>A small intro text (Optional)</small>
+            <small>A small intro text (optional)</small>
           </div>
         </div>
-        <label for="image">Post hero image</label>
+        <label for="image">Hero Image</label>
         <input
+          id="image"
           placeholder="https://images.unsplash.com/photo....."
           type="url"
-          bind:value={hero}
+          bind:value={image}
         />
-        <small>Add an URL for the image (Optional)</small>
-        <fieldset>
-          <label for="switch">
-            <input
-              type="checkbox"
-              id="draft"
-              name="draft"
-              role="switch"
-              bind:checked={draft}
-              aria-busy={loading}
-            />
-            {draft ? "Draft" : "Final"}
-          </label>
-        </fieldset>
+        <small>A URL for the image (optional)</small>
         <a
           aria-busy={loading}
-          on:click={handlePost}
+          on:click={publish}
           href="javascript:;"
-          role="button">{draft ? "Publish Draft" : "Publish"}</a
+          role="button">Publish</a
         >
       </div>
       {#if showPreview}
         <div class="preview">
-          <hgroup>
-            <h3>Preview</h3>
-          </hgroup>
+          <hgroup><h3>Preview</h3></hgroup>
           <div class="output">{@html markdown}</div>
         </div>
       {/if}
@@ -266,10 +265,10 @@
   <footer>
     <hr />
     <p>
-      Check code on <a
+       <a
         href="https://github.com/talvasconcelos/postr"
         target="_blank"
-        rel="noopener noreferrer">Github</a
+        rel="noopener noreferrer">Source code</a
       >.
     </p>
   </footer>
@@ -282,15 +281,15 @@
   .header h1 {
     margin: 0;
   }
-
   .preview {
     margin-top: 3rem;
   }
-
+  .relays {
+    margin-bottom: 3rem;
+  }
   .markdown-editor {
     margin-bottom: var(--form-element-spacing-vertical);
   }
-
   .source {
     min-height: 70vh;
   }
@@ -300,6 +299,10 @@
       margin-top: 0;
       border-left: var(--border-width) solid var(--form-element-border-color);
       padding-left: 1rem;
+    }
+
+    .relays {
+      margin-left: 10px;
     }
   }
 </style>
